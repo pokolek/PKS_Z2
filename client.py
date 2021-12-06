@@ -1,4 +1,5 @@
 import math
+import os
 import socket
 import protocol
 
@@ -63,7 +64,7 @@ def send_message(sock, fragment_size):
         else:
             continue
 
-    # inicializacna sprava pre textovu spravu, a velkost fragmentu + velkost hlavicky
+    # koniec prenosu
     fin = bytes(protocol.message_type["FIN"], 'utf-8') + bytes(formated_fragment_size, 'utf-8')
     # checksum
     fin += bytes(protocol.set_crc(bytes(str(fragment_count), 'utf-8')), 'utf-8')
@@ -72,10 +73,87 @@ def send_message(sock, fragment_size):
     sock.sendto(fin, ('127.0.0.1', 12345))
 
 
+def send_file(sock, fragment_size):
+    print("Predvolena cesta do klientskeho priecinku je: /Users/peteroliverkolek/Desktop/PKS_Z2/client_dir/")
+    # zadanie cesty k suboru, ktory chceme poslat
+    while True:
+        path = input("Zadaj cestu k suboru: ")
+        # kontrola ci je to platny subor
+        if not os.path.isfile(path):
+            print('Zadal si zlu cestu, alebo nazov suboru, skus to este raz...')
+            continue
+        # zistime nazov suboru a jeho velkost v B
+        else:
+            file_name = os.path.basename(path)
+            file_size = os.path.getsize(path)
+            print("Zadal si spravnu cestu... \nNazov suboru je: " + file_name + " s velkostou: " + str(file_size))
+            break
 
+    # inicializacia
+    while True:
+        # pocet fragmentov potrebnych pre poslanie suboru
+        fragment_count = math.ceil(file_size / fragment_size)
 
-def send_file(sock):
-    pass
+        # ak je dlzka menej ako 4, vyplnime nulami
+        fragment_size_with_header = fragment_size + protocol.header_size
+        if len(str(fragment_size_with_header)) < 4:
+            missing_zeros = 4 - len(str(fragment_size_with_header))
+            formated_fragment_size = '{insert}'.format(insert=missing_zeros * '0') + str(fragment_size_with_header)
+        else:
+            formated_fragment_size = str(fragment_size_with_header)
+
+        # inicializacna sprava pre textovu spravu, a velkost fragmentu + velkost hlavicky
+        new_data = bytes(protocol.message_type["I_FILE"], 'utf-8') + bytes(formated_fragment_size, 'utf-8')
+        # checksum z dat
+        new_data += bytes(protocol.set_crc(bytes(file_name, 'utf-8') + bytes(str(fragment_count), 'utf-8')), 'utf-8')
+        # nazov suboru
+        new_data += bytes(file_name, 'utf-8')
+        # pocet fragmentov
+        new_data += bytes(str(fragment_count), 'utf-8')
+        print(new_data.decode('utf-8'))
+        sock.sendto(new_data, ('127.0.0.1', 12345))
+        reply_from_server, server_address = sock.recvfrom(fragment_size_with_header)
+
+        if reply_from_server.decode('utf-8')[0] == protocol.message_type['ACK']:
+            print("Pripojenie uspesne...")
+            break
+        else:
+            print("Spojenie nebolo nadviazane...")
+            print("Zadaj:")
+            print("\t0 - pre opatovny pokus o pripojenie")
+            print("\t1 - pre koniec")
+            if input("Zadaj cislo:") == '0':
+                continue
+            else:
+                return
+
+    sent_fragments = 0
+    with open(path, 'rb+') as file:
+        file_data = file.read(fragment_size)
+        while file_data:
+
+            # inicializacna sprava pre textovu spravu, a velkost fragmentu + velkost hlavicky
+            data = bytes(protocol.message_type["PSH"], 'utf-8') + bytes(formated_fragment_size, 'utf-8')
+            # checksum
+            data += bytes(protocol.set_crc(file_data), 'utf-8')
+            # fragment suboru
+            data += file_data
+            print("Posielam fragment cislo " + str(sent_fragments + 1))
+            sock.sendto(data, ('127.0.0.1', 12345))
+            reply_from_server, server_address = sock.recvfrom(fragment_size_with_header)
+
+            if reply_from_server.decode('utf-8')[0] == protocol.message_type['ACK']:
+                sent_fragments += 1
+                file_data = file.read(fragment_size)
+            else:
+                continue
+
+    fin = bytes(protocol.message_type["FIN"], 'utf-8') + bytes(formated_fragment_size, 'utf-8')
+    # checksum
+    fin += bytes(protocol.set_crc(bytes(str(fragment_count), 'utf-8')), 'utf-8')
+    # fragment spravy
+    print(fin.decode('utf-8'))
+    sock.sendto(fin, ('127.0.0.1', 12345))
 
 
 def client_start():
@@ -98,7 +176,7 @@ def client_start():
     #         break
     #     else:
     #         print("Zly format velkosti fragmentu, skus to znova...")
-    fragment_size = 5
+    fragment_size = 100
     path = "Users/peteroliverkolek/Desktop/PKS_Z2/server_dir"
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock_addr = ('', 12345)
@@ -120,7 +198,7 @@ def client_start():
         elif option == '1':
             send_message(sock, fragment_size)
         elif option == '2':
-            send_file(sock)
+            send_file(sock, fragment_size)
         elif option == '3':
             # client.user_interface()
             pass
