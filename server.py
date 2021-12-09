@@ -1,6 +1,8 @@
 import os
 import re
 import socket
+
+import client
 import protocol
 
 
@@ -14,12 +16,12 @@ def server_recieve(sock, path):
         if data.decode('utf-8')[0] == protocol.message_type["I_MSG"]:
             # print('data: ', data.decode('utf-8')[5:6], " crc: ", protocol.set_crc(data[6:]))
             # ak je dobry checksum posli ACK
-            if data.decode('utf-8')[5:6] == protocol.set_crc(data[6:]):
+            if data.decode('utf-8')[5:6] == protocol.get_checksum(data[6:]):
                 fragment_size = data[1:5].decode('utf-8')
                 fragment_count = data.decode('utf-8')[6:]
 
                 reply = bytes(protocol.message_type["ACK"], 'utf-8') + bytes('0000', 'utf-8')
-                reply += bytes(protocol.set_crc(reply), 'utf-8')
+                reply += bytes(protocol.get_checksum(reply), 'utf-8')
                 sock.sendto(reply, client_addr)
                 is_msg = True
                 print("Klient pripojeny z adresy ", str(client_addr))
@@ -28,29 +30,30 @@ def server_recieve(sock, path):
             else:
                 reply = bytes(protocol.message_type["RST"], 'utf-8') + bytes('0000', 'utf-8')
                 # checksum
-                reply += bytes(protocol.set_crc(reply), 'utf-8')
+                reply += bytes(protocol.get_checksum(reply), 'utf-8')
                 sock.sendto(reply, client_addr)
                 continue
 
         # subor
         elif data.decode('utf-8')[0] == protocol.message_type["I_FILE"]:
             print(data.decode('utf-8'))
-            print('data: ', data.decode('utf-8')[5:6], " crc: ", protocol.set_crc(data[6:]))
+            print('data: ', data.decode('utf-8')[5:6], " crc: ", protocol.get_checksum(data[6:]))
             # ak je dobry checksum posli ACK
-            if data.decode('utf-8')[5:6] == protocol.set_crc(data[6:]):
+            if data.decode('utf-8')[5:6] == protocol.get_checksum(data[6:]):
                 # velkost fragmentu + hlavicka
                 fragment_size = data[1:5].decode('utf-8')
                 # pocet fragmentov najdeny za pomoci regularneho vyrazu kedy najdeme posledne cislo na konci
                 # data vyzraju nasledovne <nazov_suboru>.<pripona><pocet_fragmentov>
                 fragment_count = re.findall(r'\d+', data.decode('utf-8'))[-1]
                 # index na ktorom sa nachadza pocet fragmentov
-                fragment_count_index = data.decode('utf-8').find(fragment_count)
+                fragment_count_index = data.decode('utf-8')[6:].find(fragment_count)
+                fragment_count_index += 6
                 print("size: ", fragment_size, "count: ", fragment_count, "index: ", str(fragment_count_index))
                 file_name = data.decode('utf-8')[6:fragment_count_index]
-                print(file_name)
+                print("file name ", file_name)
 
                 reply = bytes(protocol.message_type["ACK"], 'utf-8') + bytes('0000', 'utf-8')
-                reply += bytes(protocol.set_crc(reply), 'utf-8')
+                reply += bytes(protocol.get_checksum(reply), 'utf-8')
                 print(reply.decode('utf-8'))
                 sock.sendto(reply, client_addr)
                 is_msg = False
@@ -60,7 +63,7 @@ def server_recieve(sock, path):
             else:
                 reply = bytes(protocol.message_type["RST"], 'utf-8') + bytes('0000', 'utf-8')
                 # checksum
-                reply += bytes(protocol.set_crc(reply), 'utf-8')
+                reply += bytes(protocol.get_checksum(reply), 'utf-8')
                 sock.sendto(reply, client_addr)
                 continue
         else:
@@ -76,18 +79,19 @@ def server_recieve(sock, path):
             # prijmame data
             if data.decode('utf-8')[0] == protocol.message_type["PSH"]:
                 # spravne prijate data
-                if data.decode('utf-8')[5:6] == protocol.set_crc(data[6:]):
+                if data.decode('utf-8')[5:6] == protocol.get_checksum(data[6:]):
                     reply = bytes(protocol.message_type["ACK"], 'utf-8') + bytes(fragment_size, 'utf-8')
-                    reply += bytes(protocol.set_crc(reply), 'utf-8')
+                    reply += bytes(protocol.get_checksum(reply), 'utf-8')
                     sock.sendto(reply, client_addr)
                     recieved_fragments += 1
-                    print("Prijaty fragment cislo:  ", str(recieved_fragments), " s datami: ", data.decode('utf-8')[6:])
+                    print("Prijaty fragment cislo:  ", str(recieved_fragments), "velkost dat: ", str(int(fragment_size) - protocol.header_size))
                     message += data.decode('utf-8')[6:]
 
                 # nespravne prijate data
                 else:
+                    print("Fragment cislo: ", str(recieved_fragments + 1), "nebol prijaty korektne, opatovne prijimam...")
                     reply = bytes(protocol.message_type["RST"], 'utf-8') + bytes(fragment_size, 'utf-8')
-                    reply += bytes(protocol.set_crc(reply), 'utf-8')
+                    reply += bytes(protocol.get_checksum(reply), 'utf-8')
                     sock.sendto(reply, client_addr)
             # koncime
             elif data.decode('utf-8')[0] == protocol.message_type["FIN"]:
@@ -106,23 +110,25 @@ def server_recieve(sock, path):
                 # prijmame data
                 if data.decode('utf-8', errors='ignore')[0] == protocol.message_type["PSH"]:
                     # spravne prijate data
-                    if data.decode('utf-8', errors='ignore')[5:6] == protocol.set_crc(data[6:]):
+                    if data.decode('utf-8', errors='ignore')[5:6] == protocol.get_checksum(data[6:]):
                         reply = bytes(protocol.message_type["ACK"], 'utf-8') + bytes(fragment_size, 'utf-8')
-                        reply += bytes(protocol.set_crc(reply), 'utf-8')
+                        reply += bytes(protocol.get_checksum(reply), 'utf-8')
                         sock.sendto(reply, client_addr)
                         recieved_fragments += 1
-                        print("Prijaty fragment cislo:  ", str(recieved_fragments))
+                        print("Prijaty fragment cislo:  ", str(recieved_fragments), "velkost dat: ", str(int(fragment_size) - protocol.header_size))
                         file.write(data[6:])
 
                     # nespravne prijate data
                     else:
+                        print("Fragment cislo: " , str(recieved_fragments + 1 ), "nebol prijaty korektne, opatovne prijimam...")
                         reply = bytes(protocol.message_type["RST"], 'utf-8') + bytes(fragment_size, 'utf-8')
-                        reply += bytes(protocol.set_crc(reply), 'utf-8')
+                        reply += bytes(protocol.get_checksum(reply), 'utf-8')
                         sock.sendto(reply, client_addr)
 
                 # koncime
                 elif data.decode('utf-8')[0] == protocol.message_type["FIN"]:
                     print("Komunikacia bola ukoncena...")
+                    print("Pocet prenesenych fragmentov:", str(recieved_fragments))
                     print("Cesta k suboru je: ", path + file_name)
                     break
                 else:
@@ -130,16 +136,15 @@ def server_recieve(sock, path):
 
 def server_start():
     print("Server bol zapnuty...")
-    # while True:
-    #     port_number = input("Zadaj cislo portu: ")
-    #     if port_number.isdecimal():
-    #         print("Zadal si spravny format portu...")
-    #         break
-    #     else:
-    #         print("Zly format portu, skus to znova...")
+    while True:
+        port_number = input("Zadaj cislo portu: ")
+        if port_number.isdecimal():
+            print("Zadal si spravny format portu...")
+            break
+        else:
+            print("Zly format portu, skus to znova...")
     print("Predvolena cesta k suborom je: /Users/peteroliverkolek/Desktop/PKS_Z2/server_dir/")
 
-    port_number = '12345'
     path = "/Users/peteroliverkolek/Desktop/PKS_Z2/server_dir/"
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock_addr = ('', int(port_number))
@@ -160,7 +165,7 @@ def server_start():
         elif option == '1':
             server_recieve(sock, path)
         elif option == '3':
-            # client.user_interface()
-            pass
+            sock.close()
+            client.client_start()
         else:
             print("Zadal si zle cislo, skus to znovu...")
