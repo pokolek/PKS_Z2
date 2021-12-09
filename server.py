@@ -20,7 +20,7 @@ def server_recieve(sock, path):
                 fragment_size = data[1:5].decode('utf-8')
                 fragment_count = data.decode('utf-8')[6:]
 
-                reply = bytes(protocol.message_type["ACK"], 'utf-8') + bytes('0000', 'utf-8')
+                reply = bytes(protocol.message_type["ACK"], 'utf-8') + bytes(fragment_size, 'utf-8')
                 reply += bytes(protocol.get_checksum(reply), 'utf-8')
                 sock.sendto(reply, client_addr)
                 is_msg = True
@@ -28,7 +28,8 @@ def server_recieve(sock, path):
                 break
             # ak nieje dobry checksum posli RST
             else:
-                reply = bytes(protocol.message_type["RST"], 'utf-8') + bytes('0000', 'utf-8')
+                fragment_size = data[1:5].decode('utf-8')
+                reply = bytes(protocol.message_type["RST"], 'utf-8') + bytes(fragment_size, 'utf-8')
                 # checksum
                 reply += bytes(protocol.get_checksum(reply), 'utf-8')
                 sock.sendto(reply, client_addr)
@@ -52,7 +53,7 @@ def server_recieve(sock, path):
                 file_name = data.decode('utf-8')[6:fragment_count_index]
                 print("file name ", file_name)
 
-                reply = bytes(protocol.message_type["ACK"], 'utf-8') + bytes('0000', 'utf-8')
+                reply = bytes(protocol.message_type["ACK"], 'utf-8') + bytes(fragment_size, 'utf-8')
                 reply += bytes(protocol.get_checksum(reply), 'utf-8')
                 print(reply.decode('utf-8'))
                 sock.sendto(reply, client_addr)
@@ -61,7 +62,8 @@ def server_recieve(sock, path):
                 break
             # ak nieje dobry checksum posli RST
             else:
-                reply = bytes(protocol.message_type["RST"], 'utf-8') + bytes('0000', 'utf-8')
+                fragment_size = data[1:5].decode('utf-8')
+                reply = bytes(protocol.message_type["RST"], 'utf-8') + bytes(fragment_size, 'utf-8')
                 # checksum
                 reply += bytes(protocol.get_checksum(reply), 'utf-8')
                 sock.sendto(reply, client_addr)

@@ -10,6 +10,7 @@ message_type = {
 
 header_size = 6
 
+
 # riesenie bolo inspirovanie https://github.com/iamhimanshu0/CRC/blob/master/CRC.py
 def xor(a, b):
     result = []
@@ -24,16 +25,22 @@ def xor(a, b):
     return ''.join(result)
 
 
+# riesenie bolo inspirovanie https://github.com/iamhimanshu0/CRC/blob/master/CRC.py
 def get_checksum(data):
     key = '1101'
     crc_key_len = len(key)
-    bin_data = (''.join(format(ord(char), 'b') for char in str(data))) + ('0' * (crc_key_len - 1))
-    checksum = bin_data[:crc_key_len]
-    while crc_key_len < len(bin_data):
+
+    # prevedenie do binarneho tvaru
+    binary_form = ''
+    for char in str(data):
+        binary_form += (format(ord(char), 'b'))
+    binary_form += ('0' * (4 - 1))
+    checksum = binary_form[:crc_key_len]
+    while crc_key_len < len(binary_form):
         if checksum[0] == '1':
-            checksum = xor(key, checksum) + bin_data[crc_key_len]
+            checksum = xor(key, checksum) + binary_form[crc_key_len]
         else:
-            checksum = xor('0' * crc_key_len, checksum) + bin_data[crc_key_len]
+            checksum = xor('0' * crc_key_len, checksum) + binary_form[crc_key_len]
         crc_key_len += 1
     if checksum[0] == '1':
         checksum = xor(key, checksum)
