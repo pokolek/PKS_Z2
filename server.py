@@ -1,9 +1,13 @@
 import os
 import re
 import socket
+import threading
+import time
 
 import client
 import protocol
+
+stop_threads = False
 
 
 def server_recieve(sock, path):
@@ -86,12 +90,14 @@ def server_recieve(sock, path):
                     reply += bytes(protocol.get_checksum(reply), 'utf-8')
                     sock.sendto(reply, client_addr)
                     recieved_fragments += 1
-                    print("Prijaty fragment cislo:  ", str(recieved_fragments), "velkost dat: ", str(int(fragment_size) - protocol.header_size))
+                    print("Prijaty fragment cislo:  ", str(recieved_fragments), "velkost dat: ",
+                          str(int(fragment_size) - protocol.header_size))
                     message += data.decode('utf-8')[6:]
 
                 # nespravne prijate data
                 else:
-                    print("Fragment cislo: ", str(recieved_fragments + 1), "nebol prijaty korektne, opatovne prijimam...")
+                    print("Fragment cislo: ", str(recieved_fragments + 1),
+                          "nebol prijaty korektne, opatovne prijimam...")
                     reply = bytes(protocol.message_type["RST"], 'utf-8') + bytes(fragment_size, 'utf-8')
                     reply += bytes(protocol.get_checksum(reply), 'utf-8')
                     sock.sendto(reply, client_addr)
@@ -117,12 +123,14 @@ def server_recieve(sock, path):
                         reply += bytes(protocol.get_checksum(reply), 'utf-8')
                         sock.sendto(reply, client_addr)
                         recieved_fragments += 1
-                        print("Prijaty fragment cislo:  ", str(recieved_fragments), "velkost dat: ", str(int(fragment_size) - protocol.header_size))
+                        print("Prijaty fragment cislo:  ", str(recieved_fragments), "velkost dat: ",
+                              str(int(fragment_size) - protocol.header_size))
                         file.write(data[6:])
 
                     # nespravne prijate data
                     else:
-                        print("Fragment cislo: " , str(recieved_fragments + 1 ), "nebol prijaty korektne, opatovne prijimam...")
+                        print("Fragment cislo: ", str(recieved_fragments + 1),
+                              "nebol prijaty korektne, opatovne prijimam...")
                         reply = bytes(protocol.message_type["RST"], 'utf-8') + bytes(fragment_size, 'utf-8')
                         reply += bytes(protocol.get_checksum(reply), 'utf-8')
                         sock.sendto(reply, client_addr)
@@ -136,7 +144,30 @@ def server_recieve(sock, path):
                 else:
                     continue
 
+
+def keep_alive(sock):
+    global stop_threads
+    while True:
+        if stop_threads:
+            return
+        sock.settimeout(10)
+        try:
+            kpa, client_addr = sock.recvfrom(4096)
+            if kpa.decode('utf-8', errors='ignore')[0] == protocol.message_type["KPA"]:
+                print("\nKeepalive obdrzany z adresy: ", str(client_addr))
+                reply = bytes(protocol.message_type["ACK"], 'utf-8') + bytes('000' + str(protocol.header_size), 'utf-8')
+                reply += bytes(protocol.get_checksum(reply), 'utf-8')
+                sock.sendto(reply, client_addr)
+            else:
+                return
+        except socket.timeout:
+            print("Koniec spojenia")
+            quit()
+
+
+
 def server_start():
+    global stop_threads
     print("Server bol zapnuty...")
     while True:
         port_number = input("Zadaj cislo portu: ")
@@ -151,6 +182,7 @@ def server_start():
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock_addr = ('', int(port_number))
     sock.bind(sock_addr)
+    print(sock.gettimeout())
 
     while True:
         print(50 * "-")
@@ -162,12 +194,27 @@ def server_start():
 
         if option == '0':
             print('Koncim...')
+            stop_threads = True
             sock.close()
             break
         elif option == '1':
+            sock.close()
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock_addr = ('', int(port_number))
+            sock.bind(sock_addr)
+            stop_threads = True
+            sock.settimeout(None)
             server_recieve(sock, path)
         elif option == '3':
+            stop_threads = True
+            sock.settimeout(None)
             sock.close()
             client.client_start()
         else:
             print("Zadal si zle cislo, skus to znovu...")
+
+        stop_threads = False
+        t1 = threading.Thread(target=keep_alive, args=[sock])
+        t1.daemon = True
+        t1.start()
+

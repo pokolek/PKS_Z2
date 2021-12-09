@@ -1,8 +1,13 @@
 import math
 import os
 import socket
+import threading
+import time
+
 import protocol
 import server
+
+stop_threads = False
 
 
 def send_message(sock, fragment_size, sock_addr_server):
@@ -196,6 +201,20 @@ def send_file(sock, fragment_size, sock_addr_server):
     sock.sendto(fin, sock_addr_server)
 
 
+
+def keep_alive(sock, sock_addr_server):
+    while True:
+        sock.sendto(bytes('200070', 'utf-8'), sock_addr_server)
+        sock.settimeout(10)
+        try:
+            kpa, client_addr = sock.recvfrom(4096)
+            if not kpa.decode('utf-8', errors='ignore')[0] == protocol.message_type["ACK"]:
+                return
+        except socket.timeout:
+            print("Koniec spojenia")
+            quit()
+        time.sleep(5)
+
 def client_start():
     print("Client bol zapnuty...")
 
@@ -221,6 +240,7 @@ def client_start():
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock_addr_server = (ip_addr, int(port_number))
 
+
     while True:
         print(50 * "-")
         print("Zadaj:")
@@ -230,16 +250,34 @@ def client_start():
         print("\t3 - pre zmenu modu programu")
         option = input("Zadaj cislo: ")
 
+
+
         if option == '0':
             print('Koncim...')
             sock.close()
             break
         elif option == '1':
+            sock.close()
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock_addr_server = (ip_addr, int(port_number))
+            sock.settimeout(None)
+            stop_threads = True
             send_message(sock, int(fragment_size), sock_addr_server)
         elif option == '2':
+            sock.close()
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock_addr_server = (ip_addr, int(port_number))
+            sock.settimeout(None)
+            stop_threads = True
             send_file(sock, int(fragment_size), sock_addr_server)
         elif option == '3':
+            stop_threads = True
             sock.close()
             server.server_start()
         else:
             print("Zadal si zle cislo, skus to znovu...")
+
+        t1 = threading.Thread(target=keep_alive, args=[sock, sock_addr_server])
+        t1.daemon = True
+        t1.start()
+        stop_threads = False
